@@ -11,6 +11,10 @@ https://fivethirtyeight.com/features/how-our-mlb-predictions-work/
 This article explains how the writers settled on their current rating system for predicting a baseball team's likelihood of winning a game. Included are the different factors that are considered and the rationale behind their weightings. The ultimate goal of this system is to predict which team will make the postseason and finally win the World Series every season.
 
 ### Data Frame and Modifications
+The selected dataset is the MLB 2023 full season set of games. The rating_prob1 and rating_prob2 columns are unique in that they are meant to account for a team's rating, home-field advantage, travel, rest, and starting pitcher already. The team with above a 0.5 rating probability is more likely to win. The columns for rating_prob were renamed to rating_win_probability to clarify what they are meant to predict.
+
+The post-game ratings are omitted because they are not useful for predicting their own respective games. The resulting subset does not include Elo ratings because those are more useful for telling a franchise's performance over the years. Within the frame of a single season, they little value above that of rating_prob.
+
 ```{r load-packages, message=FALSE}
 library(tidyverse)
 library(openintro)
@@ -29,9 +33,9 @@ mlb_elo_parsed_dataframe[1:10,]
 ```
 
 ### Findings
-The article compared the Elo system and team ratings to show why FiveThirtyEight uses the latter for its seasonal predictions. The current team ratings system is very adaptive in that it considers team strength yet accounts for factors such as team rest that can affect how a team performs. This system, while better than the historic Elo system, can still be improved further.
+The article compared the historic Elo system and team ratings to show why FiveThirtyEight only uses the latter for its seasonal predictions. The current team ratings system is very adaptive in that it considers team strength yet accounts for factors such as team rest that can affect how a team performs. This system, while better than the historic Elo system, can still be improved further.
 
 ### Recommendations
-Curiously, home-field advantage is given a flat 24 rating points with an adjustment when there are no fans. I believe home-field advantage is far more nuanced than the current iteration of the model gives it credit for. The article references this Fangraphs article, https://library.fangraphs.com/the-beginners-guide-to-understanding-park-factors/, but fails to account for the difference in park factors that the latter article describes. Baseball fields do not follow clear dimensions standards. This means it is unlikely that all stadiums have a comparable home-field advantage. The field on which the game is played at is a known and visible factor. This makes it a good way to improve the model.
+Curiously, home-field advantage is given a flat 24 rating points with an adjustment when there are no fans. Home-field advantage is far more nuanced than the current iteration of the model gives it credit for. The article references this Fangraphs article, https://library.fangraphs.com/the-beginners-guide-to-understanding-park-factors/, but fails to account for the difference in park factors that the latter article describes. Baseball fields do not follow clear dimensions standards. This means it is unlikely that all stadiums have a comparable home-field advantage. The field on which the game is played at is a known and visible factor. This makes it a good way to improve the model.
 
 
