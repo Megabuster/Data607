@@ -1,0 +1,162 @@
+---
+title: "Assignment – SQL and R"
+author: "Lawrence Yu"
+date: "`r Sys.Date()`"
+output: openintro::lab_report
+---
+
+### Overview
+This lab is an introduction to using SQL with R. SQL is a querying language for accessing relational databases. PostgreSQL is the management system used here with Aiven as the cloud hosting platform. The data is based on surveys of movie watchers of some of the most popular movies in recent years. These ratings were in the 1-5 range in ascending order of how much the rater liked the movie.  Since the movies chosen were generally well liked, one extra digit to the right of the decimal was used for more granularity in the data. 
+
+```{r load-packages, message=FALSE}
+library(DBI)
+library(dplyr)
+library(dbplyr)
+library(ggplot2)
+library(tidyverse)
+```
+
+
+### Loading environment variables
+Environment variables are commonly used to keep sensitive data protected by leaving direct references out of the code itself. The .env file uses a key value system in the form of key=value to store data. When sharing code, this allows each collaborator to have a personal .env file with their own version of that data.
+```{r load-env-example}
+readRenviron(".env")
+val <- Sys.getenv('example_env')
+val
+```
+
+
+In this case, the sensitive data are the database access credentials.
+```{r load-env-variables}
+readRenviron(".env")
+db_hostname <- Sys.getenv('hostname')
+db_port <- Sys.getenv('port')
+db_user <- Sys.getenv('user')
+db_user_password <- Sys.getenv('password')
+```
+
+### Connecting to cloud hosted database
+The following command was executed via local terminal and is pseudo coded to represent where each variable would go when using environment variables on Windows. On Windows, variables are guarded with % on both sides. To reproduce this, exchange the variables with your own appropriate values.
+```{r eval=FALSE}
+psql postgresql://${db_user}:${db_user_password}@${db_hostname}:${db_port}/movie_ratings?sslmode=require
+```
+
+### Constructing tables for movie_ratings database
+Note: A blank movie_ratings database was created via Aiven's web app interface prior to the following steps.
+
+Create tables with column names assigned and appropriate properties on each column. Insert records into the movies and raters tables first.
+```{r eval=FALSE}
+movie_ratings=> CREATE TABLE movies (name VARCHAR(255));
+movie_ratings=> CREATE TABLE raters (name VARCHAR(255));
+movie_ratings=> ALTER TABLE movies ADD PRIMARY KEY (name);
+movie_ratings=> ALTER TABLE raters ADD PRIMARY KEY (name);
+movie_ratings=> CREATE TABLE ratings (rater VARCHAR(255), movie VARCHAR(255), FOREIGN KEY (rater) REFERENCES raters(name), FOREIGN KEY (movie) REFERENCES movies(name), PRIMARY KEY (rater, movie), rating DECIMAL(2,1));
+
+movie_ratings=> INSERT INTO movies(name) VALUES('Deadpool and Wolverine');
+movie_ratings=> INSERT INTO movies(name) VALUES('Barbie');
+movie_ratings=> INSERT INTO movies(name) VALUES('Oppenheimer');
+movie_ratings=> INSERT INTO movies(name) VALUES('Spider-Man: Across the Spider-Verse');
+movie_ratings=> INSERT INTO movies(name) VALUES('Top Gun: Maverick');
+movie_ratings=> INSERT INTO movies(name) VALUES('Everything Everywhere All at Once');
+movie_ratings=> INSERT INTO raters(name) VALUES('David');
+movie_ratings=> INSERT INTO raters(name) VALUES('Sammy');
+movie_ratings=> INSERT INTO raters(name) VALUES('Riane');
+movie_ratings=> INSERT INTO raters(name) VALUES('Ben');
+movie_ratings=> INSERT INTO raters(name) VALUES('Kin');
+movie_ratings=> INSERT INTO raters(name) VALUES('Monica');
+```
+### Database Model 
+This database was implemented using three tables: movies, raters, ratings. Movies and raters tables have a lone column called name which doubles as the primary key in both tables. The ratings table represents a relation between the aforementioned tables with its three columns: movie, rater, rating. The movie name and rater name are both foreign keys. Notably, no two records in ratings can have the same combination of movie and rater. This assumes that each rater watched the movie and gave a it a single rating. The first record is inserted twice to demonstrate this.
+
+```{r eval=FALSE}
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('David', 'Deadpool and Wolverine', 4.5);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('David', 'Deadpool and Wolverine', 4.5);
+ERROR:  duplicate key value violates unique constraint "ratings_pkey"
+DETAIL:  Key (rater, movie)=(David, Deadpool and Wolverine) already exists.
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('David', 'Barbie', 4);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('Sammy', 'Deadpool and Wolverine', 4);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('Riane', 'Deadpool and Wolverine', 3);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('Ben', 'Deadpool and Wolverine', 4);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('Kin', 'Deadpool and Wolverine', 3.5);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('Riane', 'Barbie', 3);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('Ben', 'Barbie', 5);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('Ben', 'Oppenheimer', 4.5);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('David', 'Spider-Man: Across the Spider-Verse', 5);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('Sammy', 'Spider-Man: Across the Spider-Verse', 4.5);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('Riane', 'Spider-Man: Across the Spider-Verse', 4.5);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('Ben', 'Spider-Man: Across the Spider-Verse', 3.5);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('Riane', 'Top Gun: Maverick', 3);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('Monica', 'Top Gun: Maverick', 5);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('David', 'Everything Everywhere All at Once', 5);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('Riane', 'Everything Everywhere All at Once', 4.5);
+movie_ratings=> INSERT INTO ratings(rater, movie, rating) VALUES('Ben', 'Everything Everywhere All at Once', 5);
+movie_ratings=> SELECT * FROM ratings ORDER BY movie;
+ rater  |                movie                | rating
+--------+-------------------------------------+--------
+ David  | Barbie                              |    4.0
+ Riane  | Barbie                              |    3.0
+ Ben    | Barbie                              |    5.0
+ David  | Deadpool and Wolverine              |    4.5
+ Kin    | Deadpool and Wolverine              |    3.5
+ Ben    | Deadpool and Wolverine              |    4.0
+ Sammy  | Deadpool and Wolverine              |    4.0
+ Riane  | Deadpool and Wolverine              |    3.0
+ Ben    | Everything Everywhere All at Once   |    5.0
+ David  | Everything Everywhere All at Once   |    5.0
+ Riane  | Everything Everywhere All at Once   |    4.5
+ Ben    | Oppenheimer                         |    4.5
+ David  | Spider-Man: Across the Spider-Verse |    5.0
+ Sammy  | Spider-Man: Across the Spider-Verse |    4.5
+ Ben    | Spider-Man: Across the Spider-Verse |    3.5
+ Riane  | Spider-Man: Across the Spider-Verse |    4.5
+ Monica | Top Gun: Maverick                   |    5.0
+ Riane  | Top Gun: Maverick                   |    3.0
+(18 rows)
+```
+
+### Handling Missing Data
+This database implementation handles the fact that not all raters watched every movie by not having a record for such rater and movie combinations. This works because of the composite foreign keys movie/movie name and rater/rater name. The ratings table requires that a rating have both a rater and movie to be recorded. Here are two examples, one without a rating and one with.
+```{r eval=FALSE}
+movie_ratings=> SELECT * FROM ratings WHERE movie='Oppenheimer' and rater='David';
+ rater | movie | rating
+-------+-------+--------
+(0 rows)
+
+
+movie_ratings=> SELECT * FROM ratings WHERE movie='Oppenheimer' and rater='Ben';
+ rater |    movie    | rating
+-------+-------------+--------
+ Ben   | Oppenheimer |    4.5
+(1 row)
+```
+
+### Using SQL in R
+The above PostgreSQL database can be accessed in R using the same information loaded from the environment variables. 
+```{r sql-in-r}
+con <- RPostgres::dbConnect(RPostgres::Postgres(),
+                 host=db_hostname,
+                 port=db_port,
+                 dbname='movie_ratings',
+                 user=db_user,
+                 password=db_user_password)
+tables <- dbListTables(con)
+ratings_desc_query <- dbSendQuery(con, "SELECT * FROM ratings ORDER BY rating DESC")
+ratings_desc_df <- dbFetch(ratings_desc_query)
+ratings_desc_df
+dbClearResult(ratings_desc_query)
+```
+
+The above layout is useful for seeing the data sorted by category. Now that the data can be loaded into R, next step is to operate on them. This example is a representation of the average ratings for each movie. 
+```{r sql-in-r-vis}
+ratings_query <- dbSendQuery(con, "SELECT movie, rating FROM ratings ORDER BY rating")
+ratings_rows <- dbFetch(ratings_query)
+dbClearResult(ratings_query)
+ratings_rows <- aggregate(rating ~ movie, data = ratings_rows, FUN=mean)
+ratings_rows
+```
+
+### Conclusions
+Much of the above work was tied to figuring out how to set up the database and how to host it. Aiven is an online database hosting solution with a free tier. It also provided recommended connection instructions. Since it does not have a graphical user interface for managing the database, all SQL had to be done from connecting to the database from elsewhere.
+
+Three tables were used for the database, but only the ratings table was necessary for the lab's scope. However, the movies and raters tables can be extended in the future to store more information such as the genres of the movies or demographic data for the raters. The ratings could be weighted and analyzed according to these additional contextual data.
+
