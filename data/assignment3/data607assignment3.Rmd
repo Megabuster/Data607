@@ -1,1 +1,104 @@
+---
+title: "Week 3 assignment"
+author: "Lawrence Yu"
+date: "`r Sys.Date()`"
+output: openintro::lab_report
+---
+
+```{r load-packages, message=FALSE}
+library(tidyverse)
+library(openintro)
+library(RCurl)
+library(dplyr)
+library(stringr)
+```
+
+### Overview
+This lab is practice for string manipulation and regular expression pattern matching. 
+
+### Exercise 1
+Using the 173 majors listed in fivethirtyeight.com’s College Majors dataset [https://fivethirtyeight.com/features/the-economic-guide-to-picking-a-college-major/], provide code that identifies the majors that contain either "DATA" or "STATISTICS"
+
+Load the college majors dataset from a hosted "majors-list" csv. This dataset was chosen because it contained all 173 majors and a field for a N/A major as well. The objective is to determine if data and analytics are in any of the major names. All major names are always capitalized in this dataset, so the words to match are "DATA" and "STATISTICS". The "|" in between the words within the "str_detect" function's pattern indicates that we want one word or the other. Three majors contained these words.
+
+```{r exercise1-find-majors-pattern}
+college_majors_url <- 'https://raw.githubusercontent.com/Megabuster/Data607/refs/heads/main/data/assignment3/majors-list.csv'
+raw_text <- getURL(college_majors_url)
+college_majors_dataset <- read.csv(text = raw_text)
+data_stat_majors <- college_majors_dataset %>% filter(str_detect(Major, 'DATA|STATISTICS'))
+data_stat_majors
+```
+
+### Exercise 2
+Write code that transforms the data below.
+input: 
+ [1] "bell pepper"  "bilberry"     "blackberry"   "blood orange" "blueberry"    "cantaloupe"   "chili pepper" "cloudberry"  
+ [9] "elderberry"   "lime"         "lychee"       "mulberry"     "olive"        "salal berry" 
+
+Expected output: c("bell pepper", "bilberry", "blackberry", "blood orange", "blueberry", "cantaloupe", "chili pepper", "cloudberry", "elderberry", "lime", "lychee", "mulberry", "olive", "salal berry")
+
+The input data reads like a vector of values from a dataframe which has been created here as "fruit_vector". 
+
+```{r input_fruit_vector}
+fruit_df <- data.frame(fruit = c('bell pepper', 'bilberry', 'blackberry', 'blood orange', 'blueberry', 'cantaloupe', 'chili pepper', 'cloudberry', 'elderberry', 'lime', 'lychee', 'mulberry', 'olive', 'salal berry'))
+fruit_df
+fruit_vector <- fruit_df$fruit
+fruit_vector
+
+```
+The expected output appears to be a string representation of the character vector. One way to achieve this would be to use "dQuote" to add double quotes to each vector item. The "paste" function then merges the elements into a single string separated by a comma via the collapse property. The variable "fruit_str_parens" collects "fruit_str", "c", and "parentheses" that are all present in the expected output. From there, perform another "paste", but this time on "fruit_str_parens" and make sure no new separators are added.
+```{r convert-to-string}
+fruit_str <- paste(dQuote(fruit_vector), collapse = ", ")
+fruit_str
+
+fruit_str_parens <- c('c(', fruit_str, ')')
+fruit_str_parens
+
+final_fruit <- paste(fruit_str_parens, collapse = "")
+final_fruit
+```
+
+### Exercise 3
+Describe, in words, what these expressions will match:
+
+1. "(.)\1\1"
+This expression did not match anything when testing it. If this was meant to be "(.)\\\\1\\\\1" with double backslashes, it would match three of the same character in a row. This would be like 'aaa'.
+
+2. "(.)(.)\\\\2\\\\1"
+This expression matches texts that have two of the same character in between two of the same character (can be the same character as the other pair). This would be like 'baab' or 'aaaa'.
+
+3. "(..)\1"
+This expression did not match anything when testing it. If this was meant to be "(..)\\\\1" with double backslashes, it would match patterns where a pair of characters is repeated immediately after. For example, this could be 'baba' or 'aaaa'. 
+
+4. "(.).\\\\1.\\\\1"
+This expression matches a pattern where every other character is the same three times. The alternating character in between these three instances of the character can be any character. This means a specific character followed by any character, followed by the first character, followed by any character, followed by the first character again. The form could be "ababa", "aaaaa", or "aaaba".
+
+5. "(.)(.)(.).*\\\\3\\\\2\\\\1"
+This expression matches three characters in a specific order with the same three characters in reverse at a later point within the text. The repeated reverse characters can either be immediately after the original order or have multiple characters in between. For example, these could be "abccba" or "abcbtwcba".
+
+### Exercise 4
+Construct regular expressions to match words that:
+
+1. Start and end with the same character.
+
+^(.).*\\\\1$
+
+This expression assumes that there can be any number of characters, including none, beteween the repeating character. The "^" in the beginning ensures this character is the first one and the "$" ensures it ends with that same character.
+
+2. Contain a repeated pair of letters (e.g. “church” contains “ch” repeated twice.)
+
+(..).*\\\\1
+
+No specification was given that the repeated pair of letters needed to be apart or be the start or end of the word. The ".*" in between means any number, including none, of characters can occur in between the matching pairs.
+
+3. Contain one letter repeated in at least three places (e.g. “eleven” contains three “e”s.)
+
+(.).*\\\\1.*\\\\1
+
+This expression detects the first time a character appears three times within the word regardless of where in the word each occurrence is.
+
+### Conclusions 
+Data can be found in various forms which then need to be converted into forms that can be used for analysis. Regular expressions are useful for extracting data from sources such as raw HTML. They can also be used to match patterns to check if certain words or phrases appear for an analysis.
+
+
 
