@@ -1,0 +1,123 @@
+---
+title: "DATA 607 Project 1"
+author: "Lawrence Yu"
+date: "`r Sys.Date()`"
+output: openintro::lab_report
+---
+
+### Overview
+
+The goal of this lab is to practice parsing through a text file to obtain chess tournament data, divided by individual players. Some skills used are regex matching, file handling, and data handling functions.
+```{r load-packages, message=FALSE}
+library(tidyverse)
+library(openintro)
+library(RCurl)
+library(stringr)
+```
+
+### Load tournament info txt from cloud hosted source
+
+Start by loading the text file called "tournamentinfo.txt" to be parsed. Split the text into lines to make it easier to identify each player. Indices are saved to denote which lines belong to a player and simplify the look up process later. The regex matches lines that start with a pair number and has "|" in between each piece of information. Note that the pair number is not saved because as long as the lines are parsed in order, it can be derived.
+```{r get-tournament-info}
+tournament_info_url <- 'https://raw.githubusercontent.com/Megabuster/Data607/refs/heads/main/data/project1/tournamentinfo.txt'
+raw_text <- getURL(tournament_info_url)
+lines <- readLines(textConnection((raw_text)))
+indices <- str_which(lines, '([1-9])(.)+(|)(.)+(|)(.)+([.])(.)+(|)(.)+(|)(.)+(|)(.)+(|)(.)+(|)(.)+(|)')
+```
+
+### Create data frame columns
+
+As the tournament info text file is not in a usable data set form, we need to parse it for Player’s Name, Player’s State, Total Number of Points, Player’s Pre-Rating, and Average Pre Chess Rating of Opponents. Each category can be saved with its own vector. The "opponent_ids" variable is notably not part of the columns of the final csv file. It is there to help fascilitate the creating of the average opponent pre-ratings column.
+```{r create-columns}
+players <- vector()
+states <- vector()
+points <- numeric()
+pre_ratings <- numeric()
+opp_pre_ratings <- numeric()
+
+opponent_ids <- list()
+```
+
+### Parse raw text
+
+These steps are regex heavy to identify each key piece of information. The loop iterates once per player using the "indices" saved in the initial step. "Player_index" is incremented manually to match each player's pair number. A "line" is equal to "lines[i]" which means the index of a line containing a player's pair number, name, and match data. The format of the original file has the remaining player info including Elo on the following line which is labeled below as "line2". 
+
+The ratings section of the player's information always has a "->" to denote the pre and post ratings. This means the desired number, the pre-rating, will be on the left of the arrow. The next regex consideration is that some ratings have a "P" in them. We only want the number that comes before the P. A notable difference between the "P" and non-P ratings is that "P" ratings are always attached to the Elo rating directly while non-P ratings have a variable amount of space in between. The "(\\s)*" pattern match accounts for that.
+
+The last 7 digits of the first player line contains all the matches and the opponents' pair numbers. The results are outside of the scope of this project, so collect just the numbers and store them all in "opponent_ids".
+```{r tournament-info-collect}
+player_index = 1
+for (i in indices) {
+  line <- lines[i]
+  line2 <- lines[i+1]
+  new_split <- trimws(unlist(strsplit(line, '\\|')))
+  new_split2 <- trimws(unlist(strsplit(line2, '\\|')))
+
+  players <- append(players, new_split[2])
+  states <- append(states, new_split2[1])
+  points <- append(points, new_split[3])
+
+  if (str_detect(new_split2[2], '[0-9]+?(?=P)')) {
+    pre_ratings <- append(pre_ratings, str_extract(new_split2[2], '[0-9]+?(?=P)'))
+  } else {
+    pre_ratings <- append(pre_ratings, str_extract(new_split2[2], '[0-9]+?(?=(\\s)*->)'))
+  }
+  
+  new_opponent_ids <- new_split[4:10]
+  new_opponent_ids_vec <- numeric()
+
+  for (match in new_opponent_ids) {
+    if (str_detect(match, '[0-9]+')) {
+      new_opponent_ids_vec <- append(new_opponent_ids_vec, str_extract(match, '[0-9]+'))
+    }
+  }
+
+  opponent_ids[[player_index]] <- new_opponent_ids_vec
+  player_index <- player_index + 1
+}
+```
+
+### Calculate average opponent ratings
+
+Using "opponent_ids", look up the ratings for every opponent associated with a player's pair number. For example, Gary Hua is the first player and faced 7 opponents. None of the ratings had decimals in them, so I opted to round each mean and convert them into integers before saving the column.
+```{r calculate-avg-opp-ratings}
+for (player_opp_ids in 1:length(opponent_ids)) {
+
+  ratings_vec <- numeric()
+  for (opp_id in opponent_ids[player_opp_ids]) {
+    ratings_vec <- append(ratings_vec, as.numeric(pre_ratings[as.numeric(opp_id)]))
+  }
+  avg_opp_rating <- as.integer(round(mean(ratings_vec)))
+  opp_pre_ratings <- append(opp_pre_ratings, avg_opp_rating)
+}
+```
+
+### Collect the data in a data frame
+
+With all of the data already organized into individual columns, create the final data frame. A sample of the data is shown below.
+```{r make-data-frame}
+tournament_players <- data.frame(
+  name = players,
+  state = states,
+  total_points = points,
+  pre_rating = pre_ratings,
+  avg_opp_pre_rating = opp_pre_ratings
+)
+head(tournament_players, 10)
+```
+
+### Save to csv
+
+Save the results to a csv without any quotes around the strings and removing the pair number via the row.names argument. 
+```{r save-to-csv}
+
+write.csv(x = tournament_players, file = 'tournament_players.csv', quote = FALSE, row.names = FALSE)
+
+```
+
+
+### Conclusions
+
+Many assumptions were made according to the exact layout of "tournamentinfo.txt". Rows were laid out consistently for each player. Columns always had a "|" between them. Total points always had a "." regardless of the number. 
+
+This kind of parsing is not good for reusability, but it also represents a realistic scenario. When scraping data, the format it is in might not always be convenient. There will often be times where a custom solution is needed to collect that information.
