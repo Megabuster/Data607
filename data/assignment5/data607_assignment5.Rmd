@@ -1,0 +1,150 @@
+---
+title: "Assignment 5 - Tidying and Transforming Data"
+author: "Lawrence Yu"
+date: "`r Sys.Date()`"
+output: openintro::lab_report
+---
+
+```{r load-packages, message=FALSE}
+library(tidyverse)
+library(openintro)
+library(tidyr)
+library(dplyr)
+library(data.table)
+library(glue)
+library(gridExtra)
+```
+
+### Overview
+This lab provides practice for handling untidy data. It is sometimes easier to manually fix some issues from a dataset, but R is powerful enough to handle this process for us. This invaluable for larger datasets.
+
+### Load data
+
+Start by loading the hosted csv. In this case, R assigned V1 and V2 to the column names without headers. This is fine as we will change them to more useful names while tidying. 
+```{r code-chunk-label}
+flight_delays_url <- 'https://raw.githubusercontent.com/Megabuster/Data607/refs/heads/main/data/assignment5/flight_delays.csv'
+raw_data <- fread(flight_delays_url)
+```
+### Tidying the data
+
+There was a blank line in the original data. The function "fread" is not able to handle that and instead inserted a row filled with "NA"s. Remove this line first because it is useless and impacts other mutations.
+```{r remove-blank-line}
+untidy_flight_df <- raw_data %>% 
+  filter_all(all_vars(!is.na(.)))
+untidy_flight_df
+```
+
+A major issue with this data is that it is in a wide form. This is easy to read on a spreadsheet, but does not work well with many R functions. We can start by collecting each city into a single "city" column using the "melt" function. 
+```{r wide-to-long}
+melt_flight_df <- untidy_flight_df %>% 
+  melt(id.vars = c(colnames(untidy_flight_df)[1:2]), variable.name = 'city', value.name = 'total_flights')
+melt_flight_df
+```
+
+V1 and V2 also need more meaningful names. Let's rename them to airline and status respectively. 
+```{r rename-columns}
+rename_flight_df <- melt_flight_df %>% rename(
+  airline = V1,
+  status = V2
+)
+rename_flight_df
+```
+
+### Fill in missing data
+
+These columns now have meaningful names and the rows are based on each set of total flights. One last issue is that the airline columns is missing every other entry. This is because visually we can assume that if the on time airline was Alaska, the following delayed airline entry is also Alaska. Since R does not innately do this inference, we need to fill in those cells. The initial creation of the data sets the blanks in airline to an empty character instead of "NA". One way to work with this is to mutate those values to "NA" so that the "fill" function can fill in those missing values with the previous one. The dataframe is finally tidy.
+```{r fill-in-missing-cells}
+tidy_flight_df <- rename_flight_df %>%
+  mutate(airline = if_else(airline == '', NA, airline)) %>%
+    fill(airline)
+tidy_flight_df
+```
+
+### Compute airline delays
+
+Now it's time to analyze the tidied up data. We want to compare the arrival delays for the two airlines. Let's compute the number of flights where status is delayed and the total flights. Get the percentage of delayed flights using delayed_flights / total_flights for both airlines. Compile the calculated data into a dataframe.
+```{r compare-airline-delays}
+total_alaska_delays <- tidy_flight_df %>%
+  filter(airline == 'ALASKA' & status == 'delayed') %>% with(sum(total_flights))
+total_alaska_flights <- tidy_flight_df %>% 
+  filter(airline == 'ALASKA') %>% with(sum(total_flights))
+total_alaska_delay_rate = total_alaska_delays / total_alaska_flights
+
+total_am_west_delays <- tidy_flight_df %>%
+  filter(airline == 'AM WEST' & status == 'delayed') %>% with(sum(total_flights))
+total_am_west_flights <- tidy_flight_df %>% 
+  filter(airline == 'AM WEST') %>% with(sum(total_flights))
+total_am_west_delay_rate = total_am_west_delays / total_am_west_flights
+
+delay_rates_df <- data.frame(
+  airline = c('ALASKA', 'AM WEST'),
+  delay_rate = c(total_alaska_delay_rate, total_am_west_delay_rate)
+)
+delay_rates_df
+```
+
+### Analysis of airline delays
+
+Alaska has a higher overall delay rate of about 13% than AM West with about 11%. A bar plot is a convenient way to show this since we can examine the bars side by side. 
+```{r plot-delays}
+delay_rates_df %>% ggplot(aes(x = airline, y = delay_rate)) +
+  geom_bar(stat = 'identity') +
+  labs(title = 'Delay Rate by Airline')
+```
+
+### Airline delays by city
+
+Let's also compare how both airlines perform in each city. Since we are reusing this code, it's better to turn it into a function which we will call "calc_flight_rate" which accepts two filter arguments and divides their results. Loop through all combinations of cities and flights to calculate delay rates using this new function.
+
+```{r delays-by-city}
+calc_flight_rate <- function(filter_numer, filter_denom) {
+  filtered_flights <- tidy_flight_df %>%
+    filter(eval(parse(text=filter_numer))) %>% with(sum(total_flights))
+  total_flights <- tidy_flight_df %>%
+    filter(eval(parse(text=filter_denom))) %>% with(sum(total_flights))
+  total_flight_rate = filtered_flights / total_flights
+  return (total_flight_rate)
+}
+
+city_delays_col <- c('city', 'airline', 'delay_rate')
+city_delays_df <- data.frame(
+  matrix(
+    nrow = 0,
+    ncol = length(city_delays_col)
+  )
+)
+
+for (city_name in unique(tidy_flight_df$city)) {
+  for (airline_name in unique(tidy_flight_df$airline)) {
+    filter_arg_delay <- glue("airline == '{airline_name}' & status == 'delayed' & city == '{city_name}'")
+    filter_arg_total <- glue("airline == '{airline_name}' & city == '{city_name}'")
+    rate <- calc_flight_rate(filter_arg_delay, filter_arg_total)
+    city_delays_df <- rbind(city_delays_df, list(city_name,airline_name,rate))
+  }
+}
+
+colnames(city_delays_df) <- city_delays_col
+city_delays_df
+```
+Let's visualize the trends with another bar plot. Delay rates for each airline are shown side by side and separated by city. This plot definitively shows that for every city, AM West has a higher delay rate. This looks like a massive contradiction with the earlier data. What is going on with this data? 
+```{r city-delay-plot}
+ggplot(city_delays_df, aes(x = city, y = delay_rate, fill = airline)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+    labs(title = 'Delay Rate by Airline and City')
+```
+
+Checking the total flights per city for both airlines adds some insight into this issue. Taking the total flights for each city and airline combination while ignoring the delay status, we get a flights per city table for both airlines. The table implies that AM West's data are weighted toward Phoenix where it had a delay percentage of 7.9%. Alaska's data are mostly driven by its performance in Seattle with a delay percentage of 14.2%. Despite Alaska winning the head to head lower delay percentage in every city, it is unfortunately penalized for deriving more of its delay rate from its second worst delay city (only behind San Francisco).
+```{r table-desc}
+tidy_flight_df %>% group_by(airline, city) %>% summarise(total_flights = sum(total_flights), .groups = 'drop') %>%
+  arrange(desc(total_flights))
+city_delays_df %>% 
+  filter(airline == 'AM WEST' & city == 'Phoenix' | airline == 'ALASKA' & city == 'Seattle')
+```
+### Conclusions
+
+The original input data was very easy to read, but was not tidy for a data frame. Having individual cities as columns was the most egregious issue. It is better to keep data in a tidy long form and adapt as needed. 
+
+The city specific analysis was especially eye opening. It was easy to declare AM West the more reliable airline because of a better overall delay rate. However, more granular data showed that Alaska consistently outperformed AM West in every single city. 
+
+Further work into solving this conundrum could include accounting for each airline having different amounts of flights in each city. 
+
