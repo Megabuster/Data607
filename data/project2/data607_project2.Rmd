@@ -1,0 +1,289 @@
+---
+title: "Data 607 - Project 2"
+author: "Lawrence Yu"
+date: "`r Sys.Date()`"
+output: openintro::lab_report
+---
+
+```{r load-packages, message=FALSE}
+library(tidyverse)
+library(openintro)
+library(dplyr)
+library(data.table)
+library(arsenal)
+```
+
+## Overview
+The purpose of this lab is to tidy and demonstrate an analysis of three different data sets. The data sets chosen were the Pokemon, cheese, and cancer data sets from the Week 5 Discussion. 
+
+## Data set 1 - Pokemon Competitive Usage
+
+The goal for the Pokemon data set is to use the usage values as target variables. In theory, almost all of a Pokemon's properties can work as a predictor variable; even a Pokemon's name and generation can affect its usage rate. For our analysis, we we focus on "total_stats" and "usage".
+
+### Load and examine data
+
+Load the Pokemon competitive usage data set. There are multiple columns including a Pokemon's name, general properties, and usage information.
+
+```{r get-poke-data}
+pokemon_usage_url <- 'https://raw.githubusercontent.com/Megabuster/Data607/refs/heads/main/data/project2/pokemon_competitive_analysis.csv'
+pokemon_usage_raw <- fread(pokemon_usage_url)
+head(pokemon_usage_raw)
+```
+
+### Wide to long data 
+
+Most of the columns are base features of the listed Pokemon, but the last 6 are VGC data which denotes the competitive format usage. Since these are observations, they should not be mixed with the other variables. This dataset is a strong candidate for converting from wide to long format. Use "melt" to combine all the VGC columns together. 
+```{r wide-to-long}
+pokemon_usage_long <- pokemon_usage_raw %>% melt(id.vars = c(colnames(pokemon_usage_raw)[1:17]), variable.name = 'competitive_format', value.name = 'usage')
+head(pokemon_usage_long)
+```
+
+### Addressing oddities in the data
+
+Every row is completely filled, but certain cells are effectively "NA" data: "No_type" in "type2", "No_ability" in "ability2", "None" in "hidden_ability", and "NoUsage" in "usage". 
+
+A Pokemon always has a "type1", but might not have a "type2". Two Pokemon with the same two types in opposite orders such as "grass" and "poison" or "poison" and "grass" are generally the same for our purposes. 
+
+For "No_ability" and "None", "ability1" is always set and is the default if no other abilities exist. Unfortunately, there is no information within the dataset that determines which ability is being used and how often. For the scope of this analysis, these columns will not be changed. 
+
+In "usage", "NoUsage" stands out because that should be the same as 0% usage. As 0% does exist within the "usage" column as "0.0", what does "NoUsage" actually mean? We may be able to answer this, and thus decide how to proceed with tidying, by analyzing when we see each value. We will examine data for all Pokemon, used (any number above 0%), no usage ("NoUsage" value), and 0% usage.
+
+```{r nousage-vs-zero}
+used_df <- pokemon_usage_long %>% filter(usage != '0.0' & usage != 'NoUsage')
+no_usage_df <- pokemon_usage_long %>% filter(usage == 'NoUsage')
+zero_usage_df <- pokemon_usage_long %>% filter(usage == '0.0')
+all_summar <- pokemon_usage_long %>% summarise(mean = mean(total_stats), median = median(total_stats))
+used_summar <- used_df %>% summarise(mean = mean(total_stats), median = median(total_stats))
+no_usage_summar <- no_usage_df %>% summarise(mean = mean(total_stats), median = median(total_stats))
+zero_usage_summar <- zero_usage_df %>% summarise(mean = mean(total_stats), median = median(total_stats))
+usage_means <- c(all_summar$mean, used_summar$mean, no_usage_summar$mean, zero_usage_summar$mean)
+usage_medians <- c(all_summar$median, used_summar$median, no_usage_summar$median, zero_usage_summar$median)
+usage_names <- c('all', 'used', 'no_usage', 'zero_usage')
+barplot(usage_means, names.arg = usage_names, ylab = 'avg_total_stats')
+
+data.frame(
+  usage_type = usage_names,
+  usage_mean = usage_means,
+  usage_median = usage_medians
+)
+```
+The "total_stats" property is a collection of all the base stats of a Pokemon ranging from "hp" to "speed". Logically, a Pokemon that is stronger, one that has higher stats, is more likely to be used. 0% usage Pokemon having the lowest total stats in the 300's makes sense, but "no_usage" is close to the average of all Pokemon in the original dataset. The medians were also calculated as despite being numbers, "total_stats" are actually discrete and not continuous variables. Pokemon are distinctly given totals such as 470 or 505. The used set of Pokemon have the highest median at 505.
+
+There are many potential directions at this juncture. While the original question was what effect does "total_stats" have on "usage", a subgoal is to tidy the "NoUsage" values. One path forward is to see the distribution of each group's "total_stats" to see if they have any odd distributions.
+```{r usage-frequency-plots}
+pokemon_usage_long %>%
+  select(c('name', 'total_stats')) %>% 
+  unique() %>%
+  ggplot(aes(x = total_stats)) +
+  geom_histogram(bins = 15, binwidth = 20) +
+  labs(title = 'All Pokemon')
+used_df %>%
+  select(c('name', 'total_stats')) %>% 
+  unique() %>%
+  ggplot(aes(x = total_stats)) +
+  geom_histogram(bins = 15, binwidth = 20) +
+  labs(title = 'Used Pokemon')
+no_usage_df %>%
+  select(c('name', 'total_stats')) %>% 
+  unique() %>%
+  ggplot(aes(x = total_stats)) +
+  geom_histogram(bins = 15, binwidth = 20) +
+  labs(title = 'No Usage Pokemon')
+zero_usage_df %>%
+  select(c('name', 'total_stats')) %>% 
+  unique() %>%
+  ggplot(aes(x = total_stats)) +
+  geom_histogram(bins = 15, binwidth = 20) +
+  labs(title = 'Zero Usage Pokemon')
+```
+
+These histograms agree with what the averages implied. Used Pokemon usually had at least over 500 total stats. Zero usage Pokemon peaked at around 300 total stats. The plot of all Pokemon and no usage Pokemon are somehow still very similar. One more test can be done to verify this finding is the "comparef" function that will show how many observations, individual Pokemon, are not in the no usage group.
+
+```{r all-vs-no-usage}
+comparedf(pokemon_usage_long %>% select(c('name', 'total_stats')) %>% unique(), 
+          no_usage_df %>% select(c('name', 'total_stats')) %>% unique())
+```
+With this result that 1272/1303 Pokemon matched, it appears that "total_stats" has almost no correlation with the "NoUsage" value. Almost every Pokemon had a competitive format where it had "NoUsage" regardless of its stats. Given the original question of whether or not "total_stats" impacted usage, we will remove instances of "NoUsage" as they are merely noise for our purpose. This feels rudimentary, but "NoUsage" clearly does not mean 0% usage and cannot be trusted to provide meaningful information.
+
+This leads to the next issue with the original data. The "usage" column treats its values as strings instead of numbers because of "NoUsage" and the small values that use "e" in them. We can start by making a data frame without "NoUsage" in it. The resulting "usage" column is still a character type. Turn the usage values into numerics so that they can be operated on.   
+
+```{r tidy-usage-column}
+pokemon_usage_df <- pokemon_usage_long %>% filter(usage != 'NoUsage')
+# typeof(pokemon_usage_df$usage)
+pokemon_usage_df_fixed <- transform(pokemon_usage_df, usage = as.numeric(usage))
+head(pokemon_usage_df_fixed)
+```
+
+The main question was the impact of "total_stats" on "usage". Let's plot the correlation between these values.
+
+```{r usage-total-stats-plot}
+pokemon_usage_df_fixed %>% 
+  ggplot(aes(x = total_stats, y = usage)) +
+  geom_point() +
+  geom_smooth()
+pokemon_usage_df_fixed %>% 
+  filter(usage > 1) %>%
+  ggplot(aes(x = total_stats, y = usage)) +
+  geom_point() +
+  geom_smooth()
+```
+
+There does appear to be an effect on usage by total_stats. However, most usage rates are still clustered near 0% even among the Pokemon with higher total_stats. The highest usage rate Pokemon at around 60% usage and higher are generally in the 500s. Setting "usage" above 1% to remove the impact of barely used Pokemon shows a peak usage of Pokemon around 550 total stats. This implies that other predictors are also affecting usage. 
+
+The average usage percentage of a Pokemon is 1.6%. Keep this in mind for the final plot.
+
+```{r usage-aggregated-mean}
+pokemon_usage_df_fixed %>% summarise(mean = mean(usage))
+aggr_df <- aggregate(usage ~ total_stats, data = pokemon_usage_df_fixed, mean)
+aggr_df %>%
+  filter() %>%
+  ggplot(aes(x = total_stats, y = usage)) +
+  geom_point() +
+  geom_smooth()
+```
+
+The individual Pokemon that were used a lot skew the results heavily. However, the trend here seems to fit what we had assumed. The average usage of lower "total_stat" Pokemon is extremely low compared to the higher ones. We can try to regroup the data into stat groups to reduce the impact of individual Pokemon outliers. This categorization is because "total_stat" is discrete and not continuous. A single Pokemon with a 525 stat total and 50% usage does not automatically mean we should see a higher usage rate for a 530 total Pokemon.
+
+### Pokemon final analysis 
+
+```{r usage-by-stat-group}
+test_combine <- pokemon_usage_df_fixed  %>% reframe(stat_group = round(total_stats, digits = -2), name = name, usage = usage) %>% aggregate(usage ~ stat_group, mean)
+test_combine
+test_combine %>% 
+  ggplot() +
+  geom_bar(aes(x = stat_group, y = usage), stat = 'identity') +
+  labs(title = "Pokemon usage by total stat group (rounded)")
+```
+
+Combine each Pokemon by total_stat groups, rounded to the nearest hundred. This means 550-649 will round to 600. Notably, this is now the highest average usage group. The correlation between "usage" and "total_stats" is much more apparent. The 600 and 700 total stat groups are by far the most represented in battles with 6% and 5% respectively. The 500 total stat group is down at 1.4% now, while the smaller groups average usage rates of well below 1%. 1.4% is still quite close to the 1.6% mean. It is possible there are some extraneous factors that prevent the highest "stat_group" from being the most used of all such as a ban list that would disallow usage of certain Pokemon during specific tournaments, but those variables were not collected in this data set. 
+
+
+## Dataset 2 - Cheese
+
+The data set chosen is a list of different cheeses and properties about them such as taste, origin, and nutritional facts. The goal is to compare the cheeses by region and determine if there's a trend in flavor. 
+
+Start by loading the data. 
+```{r get-cheese-data}
+cheese_url <- 'https://raw.githubusercontent.com/Megabuster/Data607/refs/heads/main/data/project2/cheese.csv'
+cheese_raw <- fread(cheese_url)
+head(cheese_raw)
+```
+
+### Tidying region and country columns
+
+As one of the main variables we are analyzing today, we want to see how regions look. Nearly 28% of cheeses do not have a region. There is also very little consistency regarding the way regions are listed. There are cities, states, multiple municipalities, actual regions, regions within states, contracted names, names with prepositions, etc. 
+
+```{r cheese-tidy-region}
+sum(is.na(cheese_raw$region)) / nrow(cheese_raw) * 100
+# Sample country for missing data twice because apparently they are not listed as "NA"
+sum(is.na(cheese_raw$country)) / nrow(cheese_raw) * 100
+sum(cheese_raw$country == '') / nrow(cheese_raw) * 100
+```
+A key to this analysis is that each "region" is going to be within a country and fortunately all of those have values... or do they? Actually, there are countries that are missing, but they are listed as empty strings instead of "NA". Over 99% of countries are available making them a reliable starting point. Let's group the countries together and see what regions are associated with each one.
+
+```{r cheese-countries}
+aggr_country <- aggregate(region ~ country, cheese_raw, \(cheese_raw) paste(unique(cheese_raw), collapse = ", "))
+head(aggr_country)
+```
+
+Actually, the countries are not tidy either. There are multiple countries grouped together and sometimes a country has a sovereign state (England as a part of the United Kingdom). Without additional contextual information, there are multiple possible paths forward. One logical assumption is that countries or regions that are co-credited for a cheese are probably either similar culturally or are neighboring entities. The flaw in that assumption is that you could argue that there are similarities between the United States and Italy and between the United States and Mexico, but that does not transitively mean that Mexico and Italy are related. 
+
+From a quick check, we find that there are 6 instances where no region or country is provided. Since we're trying to see the impact of location on the cheese's properties, we will remove these cheeses as we are unable to analyze them without more context.  
+
+```{r cheese-check-na}
+cheese_reduced <- cheese_raw %>% filter(!(cheese_raw$country == '' & is.na(cheese_raw$region)))
+
+cheese_longest <- cheese_reduced %>% select(cheese, country, region, flavor) %>% separate_longer_delim(country, ', ') %>% separate_longer_delim(region, ', ') %>% separate_longer_delim(flavor, ', ')
+head(cheese_longest)
+```
+
+### Cheese final analysis
+Going over the resulting "cheese_longest" dataframe, we get a spoiler regarding the fact that this is the extent that we will be lengthening this data set today. Let's see what impacts country or region have on flavor.
+
+```{r fig.height=10, cheese-plot-final}
+distinct_country_cheese <- cheese_longest %>% filter(country != '' & !is.na(flavor)) %>% select(cheese, country, flavor) %>% distinct() 
+
+sum_country_cheese <- distinct_country_cheese %>% 
+  select(country, flavor) %>%
+  group_by(country, flavor) %>%
+  summarise(total = n(), across(everything(), first), .groups = 'drop')
+
+head(sum_country_cheese %>% arrange(desc(total)))
+
+aggregate(total ~ country + flavor, data = sum_country_cheese, sum) %>% ggplot(aes(x = country, y = total, fill = flavor)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  labs(title = 'Cheese flavor trends per country') +
+  coord_flip()
+
+distinct_region_cheese <- cheese_longest %>% filter(!is.na(region) & !is.na(flavor)) %>% select(cheese, region, flavor) %>% distinct() 
+
+sum_region_cheese <- distinct_region_cheese %>% 
+  select(region, flavor) %>%
+  group_by(region, flavor) %>%
+  summarise(total = n(), across(everything(), first), .groups = 'drop')
+
+head(sum_region_cheese %>% arrange(desc(total)))
+```
+
+This data set pushes the limits of what can be reasonably viewed within a bar plot. It appears that Canada, Italy and the United States were especially well represented in terms of flavors of cheese. Notable trends from examining the top of the country specific data is the prevalence of sweet flavors which matches a common stereotype. 
+
+There were 380 unique region names still remaining in this modified data frame, so I saved us the trouble of trying to read that plot. The region table shows that Wisconsin produces a lot of sweet cheese as well. As an American state, this corroborates the implications from the previous table. 
+
+While the final dataframes were still not perfectly tidy, we were able to see notable consistent trends when analyzing the most recurring data within the cheese data set.
+
+## Dataset 3 - Cancer Data
+
+This data set is about breast cancer cases from 2020-2024 at Houston's MD Anderson Cancer Center. Tidying the data will focus on making the data longer. The analysis goal will be to see how race demographics impact case totals.
+
+### Tidying the data
+
+Start by loading the data. 
+
+```{r get-dnd-data}
+cancer_url <- 'https://raw.githubusercontent.com/Megabuster/Data607/refs/heads/main/data/project2/Untidydataset%20_624.csv'
+cancer_raw <- fread(cancer_url)
+head(cancer_raw)
+```
+
+This data set was converted from xlsx to csv type to streamline it with the other data sets. Inadvertently, this has led to the form of the data getting untidier than before. We will need to remove the first two rows and make row 3 the new column names.
+
+```{r cancer-fix-colnames}
+names(cancer_raw) <- unlist(cancer_raw[2])
+cancer_fixed_col <- cancer_raw[-c(1:2),]
+head(cancer_fixed_col)
+```
+
+With the column names now correctly assigned, let's remove "total_patients" as it will be useless for us after we lengthen the data. Then we will use the "melt" function to extract the years into a column with the values being another column. Clean up the new "Year" column by removing "Cases_" and making the resulting years into numeric values.
+```{r cancer-melt}
+cancer_fixed_col$Total_Patients <- NULL
+head(cancer_fixed_col)
+cancer_melt <- cancer_fixed_col %>% melt(id.vars = c(colnames(cancer_fixed_col)[1:4],colnames(cancer_fixed_col)[10]), variable.name = 'Year', value.name = 'Cases')
+head(cancer_melt)
+cancer_melt <- cancer_melt %>% mutate(Year = as.numeric(str_remove(Year, 'Cases_')))
+cancer_melt <- cancer_melt %>% mutate(Cases = as.numeric(Cases))
+head(cancer_melt)
+```
+
+### Cancer final analysis
+
+With the data better formatted, let's take advantage of having the cases and year properly split. Let's see how many cancer cases each race had from 2020-2024.
+
+```{r cancer-annual-plot}
+aggregate(Cases ~ Race + Year, data = cancer_melt, sum)
+aggregate(Cases ~ Race + Year, data = cancer_melt, sum) %>% ggplot(aes(x = Year, y = Cases, fill = Race)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  labs(title = 'Cancer rate from 2020-2024 by race')
+```
+
+Nothing looks out of place in this chart. The total cancer cases for each race increased gradually each year. This trend did not affect the ratio of cancer rates for each race against each other. Asians had the lowest rate while Blacks had the highest.
+
+## Findings and Recommendations
+
+Not all untidy data look the same. Many similar techniques were used to tidy each data set, but different nuances were still required. 
+
+The Pokemon data set was a good candidate for a wide to long transformation. Since the goal was to compare "total_stats" and "usage" to determine if there was a correlation, the focus was on tidying the "usage" column. A choice was made to remove any data listed as "NoUsage" because through further analysis, there was not enough information to decide if a technique like imputation was better served. The need to analyze the data before determining a tidying strategy was a unique feature of this data set. Further work on the data could include breaking down the formats into specific years and tournaments to see time series trends.
+
+The hardest data set to work with was the cheese data as without more context beyond what the data set provided, it was nearly impossible to account for every exception. Concessions had to be made when tidying because too many manual fixes and assumptions needed to be made. A good lesson from this work was that despite the issues, trend data still stood out. As more nuanced trends would be hard to detect, further work would be introducing geographic data sets that can help with cleaning and categorizing the countries and regions.
+
+The main takeaway from working with the cancer data set was the importance of practice. It was the last data set to be tidied and that felt evident as many patterns were quicker to find. Further work could be to incorporate the other predictors.
+
