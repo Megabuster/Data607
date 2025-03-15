@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+ <root>
+     <row>
+         <title>American Woman's Home: Or, Principles of Domestic Science</title>
+         <author>Catharine Esther Beecher</author>
+		 <author>Harriet Beecher Stowe</author>
+         <language>English</language>
+         <ebook_release_year>2004</ebook_release_year>
+         <copyright_status>Public domain in the USA</copyright_status>
+     </row>
+     <row>
+         <title>The handbook of soap manufacture</title>
+         <author>W. H. Simmons</author>
+		 <author>H. A. Appleton</author>
+         <language>English</language>
+         <ebook_release_year>2007</ebook_release_year>
+         <copyright_status>Public domain in the USA</copyright_status>
+     </row>
+     <row>
+         <title>Elevator Systems of the Eiffel Tower</title>
+         <author>Robert M. Vogel</author>
+         <language>English</language>
+         <ebook_release_year>2010</ebook_release_year>
+         <copyright_status>Public domain in the USA</copyright_status>
+     </row>
+ </root>
