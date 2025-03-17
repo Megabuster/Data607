@@ -1,0 +1,100 @@
+---
+title: "Assignment – Working with XML and JSON in R"
+author: "Lawrence Yu"
+date: "`r Sys.Date()`"
+output: openintro::lab_report
+---
+
+### Overview
+
+The goal of today's lab is to load the same data from three different sources. From this we can learn the differences between each file type and find out if there are any differences in what the loaded data looks like.
+
+```{r load-packages, message=FALSE}
+library(tidyverse)
+library(openintro)
+library(xml2)
+library(XML)
+library(rvest)
+library(rjson)
+library(readr)
+library(jsonlite)
+library(plyr)
+library(arsenal)
+library(reshape2)
+```
+
+
+### Load files
+
+The data extraction portion of this lab is important because it depends on the form of the data: html, xml, or json. Loading the html and using "html_table" on it creates an untidy, but usable data frame. Loading the xml using "read_xml", "xmlParse", and "xmlToList" turns it into a wide data frame. The "xmlToDataFrame" function did not work here because of the two author tags. The json file turned into a properly formed data frame at first glance, but it actually combined any books with multiple authors into rows where authors is a vector. 
+```{r load-files}
+html_url <- 'https://raw.githubusercontent.com/Megabuster/Data607/refs/heads/main/data/assignment6/books.html'
+xml_url <- 'https://raw.githubusercontent.com/Megabuster/Data607/refs/heads/main/data/assignment6/books.xml'
+json_url <- 'https://raw.githubusercontent.com/Megabuster/Data607/refs/heads/main/data/assignment6/books.json'
+
+raw_html_df <- read_html(html_url) %>% html_table() %>% as.data.frame()
+raw_html_df
+
+raw_xml <- read_xml(xml_url)  %>% xmlParse(xml_url)
+raw_xml_df <- xmlToList(raw_xml) %>% ldply(data.frame)
+raw_xml_df
+
+raw_json_df <- fromJSON(json_url, flatten=TRUE)
+raw_json_df
+```
+
+### Compare initial data frames
+
+Let's compare the loaded data. I'm choosing now to do a comparison because this is roughly the first instance where all three instances of the data can be compared since they are now data frames. There are three data frames, thus three comparisons to compare them all. 
+```{r compare-df}
+samp_summary <- summary(comparedf(raw_html_df, raw_xml_df))
+head(samp_summary)
+comparedf(raw_html_df, raw_xml_df)
+comparedf(raw_html_df, raw_json_df)
+comparedf(raw_xml_df, raw_json_df)
+```
+
+The results of the comparisons are heavily dependent on the loading processes chosen for each file format. In this case, it is not surprising that all three data frames are very different. However, there are some similarities. "Shared: 5 non-by variables and 3 observations." The observations were consistently found. A snippet of a summary is shown as well. For larger data frames where it may be difficult to see differences, the "summary" function in tandem with "comparef" provides far more details that can be analyzed. 
+
+### Fix data frames
+
+In order to be complete with this example, let's see the process of fixing the data frames so that they are tidy and actually comparable.
+
+The html data frame needs values to be imputed to not have missing data if some books have multiple authors.
+```{r fix-html}
+html_df <- raw_html_df %>% mutate_at(c('title', 'language', 'copyright_status'), ~na_if(., '')) %>% 
+  fill(c(title, language, ebook_release_year, copyright_status), .direction = 'down')
+html_df
+```
+
+Change the xml data frame to a longer form using "melt" and exclude rows that expect extra authors.
+```{r fix-xml}
+xml_df <- raw_xml_df %>%
+  select(colnames(raw_xml_df)[2:7]) %>%
+  melt(id.vars = c('title', 'language', 'ebook_release_year', 'copyright_status'), value.name = 'author', na.rm = TRUE) 
+xml_df$variable = NULL 
+xml_df
+```
+
+Simply unnest the author column for the json data frame to tidy it.
+```{r fix-json}
+json_df <- raw_json_df %>% unnest(cols = c(author))
+json_df
+```
+
+### Compare final data frames
+
+The data frames are now effectively the same for most meaningful analyses. The html and json based data frames are equal. The xml data frame shows a slight difference from the other two because the column order is different. 
+```{r compare-final}
+samp_summary_final <- summary(comparedf(html_df, xml_df))
+head(samp_summary_final)
+comparedf(html_df, xml_df)
+comparedf(html_df, json_df)
+comparedf(xml_df, json_df)
+```
+
+### Conclusions
+
+There are many ways to load data stored in different file types into R. Some methods are able to create data frames immediately. The "xmlToDataFrame" had some issues dealing with there being two author tags. All options loaded the data, just in different forms. With some tidying, each data file could eventually become equivalent data frames.
+
+There were also multiple forms the data could have within the original files. These were choices that I had to make myself. I could have nested some of the data deeper into the HTML or XML files. This would be akin to the work needed to derive such data from websites where I do not have control over the form of the data hosted. Further work could be to practice this process with various websites.
