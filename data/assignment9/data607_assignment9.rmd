@@ -1,0 +1,127 @@
+---
+title: "Assignment 9 - Web APIs"
+author: "Lawrence Yu"
+date: "`r Sys.Date()`"
+output: openintro::lab_report
+---
+
+```{r load-packages, message=FALSE}
+library(tidyverse)
+library(openintro)
+library(jsonlite)
+library(stringi)
+library(httr)
+```
+
+### Overview
+
+APIs are a common source of data, especially in cases where the data could change at any time such as the most recent news. The New York Times provides free access to certain APIs, but require that each developer use their own API key. Today we we will go over the process of procuring and API key and using it to get data which we can use as a dataframe. Then we will attempt to answer the question: which New York Times news sections contain articles with the most words in January 2024?
+
+### Load data from API
+
+Retrieve the API key from the environment variables. Using the combined URL, call the NY Times API.
+```{r get-nyt-data}
+nyt_api_base <- 'https://api.nytimes.com/svc/topstories/v2/'
+readRenviron('.env')
+nyt_api_key <- Sys.getenv('nyt_api_key')
+archive_url <- paste0('https://api.nytimes.com/svc/archive/v1/2024/1.json?api-key=', nyt_api_key)
+archive_data <- GET(archive_url)
+archive_data
+```
+
+### Build Dataframe
+
+The raw data from NY Times is supposedly a JSON according to the URL. However, it requires some data wrangling to use. For today's question, we will want the total word counts for each web page. We will also extract the abstract and URL to help verify the information found. The keys "news_desk" and "section_name" both appear to be categories, so we'll keep both to check which one provides what we want.
+
+```{r make-nyt-df}
+parsed <- content(archive_data, 'parsed')
+response_body <- parsed$response$docs
+abstracts <- c()
+word_counts <- c()
+news_desks <- c()
+web_urls <- c()
+document_types <- c()
+sections <- c()
+
+for (entry in response_body) {
+  abstract <- entry['abstract']
+  abstracts <- append(abstracts, abstract)
+  count <- entry['word_count']
+  word_counts <- append(word_counts, count)
+  news_desk <- entry['news_desk']
+  news_desks <- append(news_desks, news_desk)
+  web_url <- entry['web_url']
+  web_urls <- append(web_urls, web_url)
+  document_type <- entry['document_type']
+  document_types <- append(document_types, document_type)
+  section <- entry['section_name']
+  sections <- append(sections, section)
+}
+nyt_df <- data.frame(
+  abstract = unlist(abstracts, use.names = FALSE),
+  word_count = unlist(word_counts, use.names = FALSE),
+  news_desk = unlist(news_desks, use.names = FALSE),
+  web_url = unlist(web_urls, use.names = FALSE),
+  document_type = unlist(document_types, use.names = FALSE),
+  section = unlist(sections, use.names = FALSE)
+)
+head(nyt_df)
+```
+
+### Perform Analysis
+
+Put together a summary of the average word count per article and summaries for both news desks and sections.
+
+```{r analysis}
+summary(nyt_df)
+nyt_df %>% filter(news_desk != '') %>% group_by(news_desk) %>% summarise(across(word_count, mean, na.rm = TRUE)) %>% arrange(desc(word_count))
+nyt_df  %>% group_by(section) %>% summarise(across(word_count, mean, na.rm = TRUE)) %>% arrange(desc(word_count))
+```
+
+According to the summary, the average word count in the full dataset is 921. Magazines are the wordiest news desks and sections at around 2399 words per article. However, there are a number of news desks and sections with 0 word counts. Let's see if there's a pattern regarding those.
+
+Continuing with the summaries, we can also group by document type.
+```{r doc-type}
+nyt_df %>% group_by(document_type) %>% summarise(across(word_count, mean, na.rm = TRUE)) %>% arrange(desc(word_count))
+```
+According to document_type, some of the media are articles and others are multimedia. Multimedia results always have a word count of 0.
+
+Next, let's collect mean and median word counts for each news desk and section combination. From what we've seen, removing results with 0 word counts should not affect the highest word count totals. We expect (Magazine, Magazine) to be the most common (news desk, section) combination.
+```{r}
+combo_df <- nyt_df %>% 
+  filter(word_count > 0) %>% 
+  group_by(news_desk, section) %>% 
+  summarise(mean = mean(word_count, na.rm = TRUE), 
+            median = median(word_count, na.rm = TRUE)) %>%   
+  arrange(desc(mean))
+combo_df
+```
+
+This is a peculiar result considering what we had previously established. The combination (Magazine, Magazine) has a comparable mean to each individual word count from previous analyses. However, the median is far below the mean. Furthermore, (OpEd, Podcasts) has both the highest mean and median by a wide margin. The combination (SundayBusiness, Technology) is another surprise increase. 
+
+We can do a check of how OpEd is split to see if there is any irregularity in its results.
+```{r}
+nyt_df %>% 
+  filter(news_desk %in% c('OpEd', 'SundayBusiness', 'Magazine')) %>% 
+  count(news_desk, section) %>% arrange(desc(n))
+  
+```
+
+(OpEd, Opinion) is a far more frequent combination. While this does not change the fact that (OpEd, Podcasts) were on average the wordiest in this dataset, (Magazine, Magazine) articles are far more common to find and are usually going to be long. At a mere single occurrence, (SundayBusiness, Technology) seems to be an exception in our data.
+
+One more eye test we can perform is to try and figure out why (OpEd, Podcasts) were so long. We do not have access to the articles themselves, but with the abstracts that we had collected earlier, we can finally examine them to get a gist of what these piece were about.
+
+```{r}
+nyt_df %>% filter(news_desk == 'OpEd' & section == 'Podcasts') %>% select(abstract)
+```
+
+Every result was from someone named Ezra Klein. These pieces appear to be from a podcast, potentially a transcript of everything said. While they are the longest pieces found, they do not seem to be articles in the vein of what we would imagine a New York Times article to be. 
+
+### Conclusions
+
+We sought to answer the question of which sections in the New York Times from January 2024 were the longest per article. The API, which was protected behind an API key, did not provide the individual articles themselves, but had word counts for every piece the paper featured. However, some pieces turned out to be multimedia which did not have word counts. 
+
+At first glance, news desk and section individually showed that magazine articles were the most verbose with over 2000 words on average. After further analysis, we found that pieces under OpEd and Podcasts were 5 times the word count of magazines. Depending on interpretation, either result can be seen as the answer to our question of the wordiest article. (OpEd, Podcasts) was the longest section of any news desk we found in our data. An honorable mention can be given to (SundayBusiness, Technology) as the lone article in the data had the second highest word count. Finally, magazine articles within the magazine news desk were consistently the longest articles without the caveats of these other sections.
+
+
+
