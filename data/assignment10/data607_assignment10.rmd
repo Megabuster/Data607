@@ -1,0 +1,446 @@
+---
+title: "data 607 assignment 10"
+author: "Lawrence Yu"
+date: "2025-04-02"
+output: html_document
+---
+
+## Overview
+
+Today's goal is to analyze sentiment lexicons across a few main examples. We hope to learn more about the nuances between using each one and see if there is any difference when using different corpora. 
+
+## Sentiment analysis {.tabset}
+
+The sentiment analyses are divided into the example code from chapter 2 of the textbook "Text Mining with R" and mirroring and adding to the process using another text and sentiment lexicon. Toggle between each section using the respective tabs.
+
+### Text Mining with R Chapter 2 Code
+
+The base code from the textbook begins by showing what each tidytext lexicon provides. Generally they contain a word and a sentiment or sentiment value.
+
+```{r}
+library(tidytext)
+library(textdata)
+
+get_sentiments('afinn')
+get_sentiments('bing')
+get_sentiments('nrc')
+```
+
+Get Jane Austen book texts and tidy them into a corpus to use sentiment analysis on. This analysis is on the book "Emma". 
+```{r}
+library(janeaustenr)
+library(dplyr)
+library(stringr)
+
+tidy_books <- austen_books() %>%
+  group_by(book) %>%
+  mutate(
+    linenumber = row_number(),
+    chapter = cumsum(str_detect(text, 
+                                regex("^chapter [\\divxlc]", 
+                                      ignore_case = TRUE)))) %>%
+  ungroup() %>%
+  unnest_tokens(word, text)
+
+nrc_joy <- get_sentiments("nrc") %>% 
+  filter(sentiment == "joy")
+
+tidy_books %>%
+  filter(book == "Emma") %>%
+  inner_join(nrc_joy) %>%
+  count(word, sort = TRUE)
+```
+Good, friend, and hope are the most common joy words found.
+
+Compare the sentiments per line with the big sentiment lexicon.
+```{r}
+library(tidyr)
+
+jane_austen_sentiment <- tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(book, index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+```
+
+These sentiments can now be plotted.
+
+```{r}
+library(ggplot2)
+
+ggplot(jane_austen_sentiment, aes(index, sentiment, fill = book)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~book, ncol = 2, scales = "free_x")
+```
+
+The plots depict the sentiments throughout each text's story. 
+
+Take the words from only "Pride & Prejudice" and obtain the net sentiments based on afinn, bing, and nrc.
+```{r}
+pride_prejudice <- tidy_books %>% 
+  filter(book == "Pride & Prejudice")
+
+afinn <- pride_prejudice %>% 
+  inner_join(get_sentiments("afinn")) %>% 
+  group_by(index = linenumber %/% 80) %>% 
+  summarise(sentiment = sum(value)) %>% 
+  mutate(method = "AFINN")
+
+bing_and_nrc <- bind_rows(
+  pride_prejudice %>% 
+    inner_join(get_sentiments("bing")) %>%
+    mutate(method = "Bing et al."),
+  pride_prejudice %>% 
+    inner_join(get_sentiments("nrc") %>% 
+                 filter(sentiment %in% c("positive", 
+                                         "negative"))
+    ) %>%
+    mutate(method = "NRC")) %>%
+  count(method, index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment,
+              values_from = n,
+              values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+```
+
+Plot the sentiments according to each sentiment lexicon.
+```{r}
+bind_rows(afinn, 
+          bing_and_nrc) %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~method, ncol = 1, scales = "free_y")
+```
+
+The sentiment trajectories are similar for each lexicon, but have individual nuances as well.
+
+We can study each lexicon individually to understand why there may be differences.
+```{r}
+get_sentiments("nrc") %>% 
+  filter(sentiment %in% c("positive", "negative")) %>% 
+  count(sentiment)
+
+get_sentiments("bing") %>% 
+  count(sentiment)
+
+bing_word_counts <- tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+```
+
+Bing skews more negative which leads to a lower sentiment usually.
+
+Build a few more bar plots to see which words contribute the most to each sentiment.
+```{r}
+bing_word_counts
+
+bing_word_counts %>%
+  group_by(sentiment) %>%
+  slice_max(n, n = 10) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(x = "Contribution to sentiment",
+       y = NULL)
+
+custom_stop_words <- bind_rows(tibble(word = c("miss"),  
+                                      lexicon = c("custom")), 
+                               stop_words)
+
+custom_stop_words
+```
+
+Miss is the most common negative sentiment word by a lot. Positive sentiment words are a bit more diverse such as well, good, great. Realistically, miss likely refers to young, unmarried women, so we can use custom stop words to prevent it from impacting our results.
+
+Build word clouds to see the most common words in another way.
+```{r}
+library(wordcloud)
+
+tidy_books %>%
+  anti_join(stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 100))
+
+library(reshape2)
+
+tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("gray20", "gray80"),
+                   max.words = 100)
+
+p_and_p_sentences <- tibble(text = prideprejudice) %>% 
+  unnest_tokens(sentence, text, token = "sentences")
+
+p_and_p_sentences$sentence[2]
+
+austen_chapters <- austen_books() %>%
+  group_by(book) %>%
+  unnest_tokens(chapter, text, token = "regex", 
+                pattern = "Chapter|CHAPTER [\\dIVXLC]") %>%
+  ungroup()
+
+austen_chapters %>% 
+  group_by(book) %>% 
+  summarise(chapters = n())
+
+bingnegative <- get_sentiments("bing") %>% 
+  filter(sentiment == "negative")
+
+wordcounts <- tidy_books %>%
+  group_by(book, chapter) %>%
+  summarize(words = n())
+
+tidy_books %>%
+  semi_join(bingnegative) %>%
+  group_by(book, chapter) %>%
+  summarize(negativewords = n()) %>%
+  left_join(wordcounts, by = c("book", "chapter")) %>%
+  mutate(ratio = negativewords/words) %>%
+  filter(chapter != 0) %>%
+  slice_max(ratio, n = 1) %>% 
+  ungroup()
+```
+
+A number of words look common such as lady, time, emma, and dear. For sentiment words, miss is notably common, but we already addressed how its meaning might be wrong. Otherwise, good and well appear to be the next most common words, while poor stands out from the negative sentiment lexicon.
+
+Robinson, Julia Silge and David. 2 Sentiment Analysis with Tidy Data | Text Mining with R. Www.tidytextmining.com,     www.tidytextmining.com/sentiment.html.
+
+### Extra Practice with "A Tale of Two Cities" and Quanteda Sentiment
+
+The corpus chosen is the text of "A Tale of Two Cities" by Charles Dickens. Using the gutenbergr package, download the text using gutenberg_id = 98. Modify the corpus in a similar way to the Jane Austen example. Since only 1 book is being used here, there is no need for the book column this time.
+
+```{r}
+remotes::install_github('quanteda/quanteda.sentiment')
+library(quanteda.sentiment)
+library(gutenbergr)
+
+# The value 98 was found on the project gutenberg site.
+dickens_books <- gutenberg_download(98)
+tidy_dickens_text <- dickens_books %>%
+  mutate(
+    linenumber = row_number(),
+    chapter = cumsum(str_detect(text, 
+                                regex("^chapter [\\divxlc]", 
+                                      ignore_case = TRUE)))) %>%
+  ungroup() %>%
+  unnest_tokens(word, text)
+
+```
+
+Once again, we apply a technique from the earlier example. We do an inner join to see what matches the joy sentiments from nrc.
+
+```{r}
+tidy_dickens_text %>% inner_join(nrc_joy) %>% count(word, sort = TRUE)
+```
+
+The most recurring nrc joy word is good with 217 occurrences, followed by child, hope, friend, and daughter in order. Interestingly, good, friend, and hope are also among the most common in the book "Emma".
+
+We will use the bing sentiments to compare the positive and negative sentiments throughout the text. 
+```{r}
+dickens_sentiment <- tidy_dickens_text %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+```
+
+Repeat the process with a sentiment lexicon known as HuLiu found in the Quanteda package. 
+```{r}
+quant_sent_hu <- rep('positive', each = length(data_dictionary_HuLiu$positive))
+quant_sent_hu <- append(quant_sent_hu, rep('negative', each = length(data_dictionary_HuLiu$negative)))
+quant_df <- data.frame(word = unlist(data_dictionary_HuLiu, use.names = FALSE), sentiment = quant_sent_hu)
+
+dickens_quanteda_sentiment <- tidy_dickens_text %>%
+  inner_join(quant_df) %>%
+  count(index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>%
+  mutate(sentiment = positive - negative)
+```
+
+The HuLiu sentiment lexicon needed some tidying to be able to be used in the same functions. I collected the words into a column and associated the appropriate sentiment with them in a dataframe. 
+
+Next, check the sentiment plots to see how they compare.
+```{r}
+ggplot(dickens_sentiment, aes(index, sentiment)) +
+  geom_col(show.legend = FALSE)
+
+ggplot(dickens_quanteda_sentiment, aes(index, sentiment)) +
+  geom_col(show.legend = FALSE)
+```
+
+Oddly, the sentiment plots are identical for Bing and HuLiu. According to this article, https://medium.com/@laurenflynn1211/comparing-sentiment-analysis-dictionaries-in-r-c695fca64326, this surprising result is to be expected. They are nearly identical sentiment lexicons. 
+
+Compare all four lexicons.
+```{r}
+afinn_dickens <- tidy_dickens_text %>% 
+  inner_join(get_sentiments("afinn")) %>% 
+  group_by(index = linenumber %/% 80) %>% 
+  summarise(sentiment = sum(value)) %>% 
+  mutate(method = "AFINN")
+
+bing_and_nrc_dickens <- bind_rows(
+  tidy_dickens_text %>% 
+    inner_join(get_sentiments("bing")) %>%
+    mutate(method = "Bing et al."),
+  tidy_dickens_text %>% 
+    inner_join(get_sentiments("nrc") %>% 
+                 filter(sentiment %in% c("positive", 
+                                         "negative"))
+    ) %>%
+    mutate(method = "NRC")) %>%
+  count(method, index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment,
+              values_from = n,
+              values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+
+dickens_quanteda_sentiment <- dickens_quanteda_sentiment %>%
+    mutate(method = "HuLiu")
+
+bind_rows(afinn_dickens, 
+          bing_and_nrc_dickens,
+          dickens_quanteda_sentiment) %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~method, ncol = 1, scales = "free_y")
+```
+
+NRC skews much more positive than the other lexicons in the earlier story. We established the reason for this in the textbook example. This is because of the amount of positive and negative words skews more negative for Bing and HuLiu.
+
+```{r}
+bing_word_counts <- tidy_dickens_text %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+
+bing_word_counts
+
+huliu_word_counts <- tidy_dickens_text %>%
+  inner_join(quant_df) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+
+huliu_word_counts
+```
+
+Once again, miss is very common and likely not meant negatively in Dickens's works. Additionally, the HuLiu results are again identical to Bing.
+
+Plot the word contributions for each lexicon.
+
+```{r}
+bing_word_counts %>%
+  group_by(sentiment) %>%
+  slice_max(n, n = 10) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(x = "Contribution to sentiment",
+       y = NULL)
+
+huliu_word_counts %>%
+  group_by(sentiment) %>%
+  slice_max(n, n = 10) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(x = "Contribution to sentiment",
+       y = NULL)
+```
+
+As there is still no difference between our lexicons, it is more interesting to note that miss is still the most common negative word, but is not as extreme as with Jane Austen's works. Prisoner appears fairly often. Good instead of well is the most common positive word.
+
+Let's check the word cloud as before.
+```{r}
+tidy_dickens_text %>%
+  anti_join(stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 100))
+```
+There is a different assortment of words than the example. Miss is still very common for the same reasons. Otherwise, we have madame, day, miss, night, doctor, and time as standout words. Some common words such as carton and darnay are understandably common, unique words to this text as they were some of the main characters of "A Tale of Two Cities".
+
+Let's redo the example word cloud while tagging positive and negative words.
+```{r}
+set.seed(123)
+
+tidy_dickens_text %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("gray20", "gray80"),
+                   max.words = 100)
+```
+
+```{r}
+set.seed(123)
+
+tidy_dickens_text %>%
+  inner_join(quant_df) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("gray20", "gray80"),
+                   max.words = 100)
+```
+
+The two word clouds were separated out with seeds just to prove that they were giving identical results. Word clouds have a degree of randomness to them which can make the results look different when they actually are not.
+
+```{r}
+bingnegative <- get_sentiments("bing") %>% 
+  filter(sentiment == "negative")
+
+wordcounts <- tidy_dickens_text %>%
+  group_by(chapter) %>%
+  summarize(words = n())
+
+tidy_dickens_text %>%
+  semi_join(bingnegative) %>%
+  group_by(chapter) %>%
+  summarize(negativewords = n()) %>%
+  left_join(wordcounts, by = c("chapter")) %>%
+  mutate(ratio = negativewords/words) %>%
+  filter(chapter != 0) %>%
+  slice_max(ratio, n = 1) %>% 
+  ungroup()
+
+huliunegative <- quant_df %>% 
+  filter(sentiment == "negative")
+
+wordcounts <- tidy_dickens_text %>%
+  group_by(chapter) %>%
+  summarize(words = n())
+
+tidy_dickens_text %>%
+  semi_join(huliunegative) %>%
+  group_by(chapter) %>%
+  summarize(negativewords = n()) %>%
+  left_join(wordcounts, by = c("chapter")) %>%
+  mutate(ratio = negativewords/words) %>%
+  filter(chapter != 0) %>%
+  slice_max(ratio, n = 1) %>% 
+  ungroup()
+```
+
+Chapter 44 appears to be the saddest in "A Tale of Two Cities" according to both lexicons.
+
+Let's conduct one final test to see what was going on with the sentiment lexicons.
+
+```{r}
+length(quant_df$sentiment)
+length(get_sentiments('bing')$word)
+```
+
+HuLiu is 6789 words long and Bing is 6786. There apparently are differences, but very minute ones. 
+
+## Conclusions
+
+When picking out a new corpus and an extra sentiment lexicon, I would have expected to see more differences in results than the textbook example. Selecting another prominent author from a little later than Jane Austen did not change the frequency of the word miss. Additionally, I did not realize that HuLiu was so similar to Bing until performing my analysis. 
+
+Sentiment analysis is a powerful tool to help apply feelings from words to analyze texts. They are very heavily impacted by the choices of words used to measure each text. I believe that properly matching sentiment lexicons to the right era and type of work would contribute to better analyses of the texts. 
