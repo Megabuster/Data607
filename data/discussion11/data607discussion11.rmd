@@ -1,0 +1,41 @@
+---
+title: "Data 607 Recommender Systems"
+author: "Lawrence Yu"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+### Introducing Steam's Recommender System
+
+Steam is an online platform for buying and playing video games. The games listed are both from their owner, Valve, and from third party publishers and developers. As there are two key parties that Valve needs to attract to their platform, we will need to perform scenario design for both publishers and end users who buy those games.
+
+### Scenario Design - Third Party Publishers
+
+The first set of target users are third party game publishers. This can range from small independent developers to even competing major studios. Their goals are to get the most return from the games they've created. This will generally be in the form of sales and visibility. Valve helps third party publishers by featuring certain games above others. This happens most often with brand new games. Additionally, Steam allows publishers to put their games on sale or participate in Steam hosted sales events that improve their visibility to prospective buyers.
+
+### Scenario Design - Gamers
+
+The main target users are people looking for games that they want to play. We will call these people gamers. Their key goals are to find games that they enjoy. Steam aims to assist gamers by providing recommended games upfront for them. When opening the storefront, you are either shown current sales or featured and recommended games. Games are sorted by categories and have tags which help Steam determine which games are similar to each other. Games are tagged with the names of a gamer's friends that have either wishlisted, which means to save a game to buy later, or played that game.
+
+### How Steam's Recommender System Works
+
+Steam can be accessed via its website, https://store.steampowered.com/, or its desktop app. The latter is typically what people will use because it is required for installing and managing most games. Regardless, the recommender system should be the same for each version of the app. It is heavily driven by matching a game's tags to what gamers have already played and promoting new and popular games. There are specific categories with recommendations ranging from games based on games you already own, a recommendation based on a singular game you have played, featured sales, or a "Discovery Queue". The final option is more user driven. 
+
+The Discovery Queue is based on compiling new games that a user has not seen that Steam hopes are what the user wants to play. It focuses on new or popular games that are similar to what the user has bought that have never been featured to them.
+
+### Improving Steam's Recommender System
+
+The current Discovery Queue is the most interesting option that Steam provides. It takes more data into account than other options and even allows users to customize it more to their liking. It is not without faults though. The average Steam user might not even know it exists. It is slightly hidden when opening your personalized store. The side menu does not contain it and it requires scrolling down the main page to find it. Once the Discovery Queue is found, the recommended games do not appear directly, but require the user to navigate to another page where they can enable their queue. 
+
+One way I would improve the Discovery Queue is by making it the primary driver of user catered recommendations. It should be visible on most sized screens when opening the store. There should be pre-populated recommendations that can be fine tuned further without needing to go to another screen for the bulk of that work. The other forms of organizing and promoting games can remain, but they should be pushed down the page outside of games on sale and featured games. These two latter categories can share front page real estate with an improved Discovery Queue.
+
+Another improvement it needs is an improved recommendation algorithm. Steam's vision of "discovery" is focused specifically on games that seem to match what the end user would probably like and has never seen. While never seen games can be prioritized, I think there should be allowances for good fit games to still be recommended. The reasoning is that people are an inexact science and a mediocre suggestion one day may actually be what that person would like to play on a different day. 
+
+There are often complaints that recommended similar games are not necessarily similar. This system is heavily tied to the genre tags for a game which can unexpectedly link extremely different games together that happen to share a specific tag. A better system would be to weigh games on a degree of relation to each other. Steam has user reviews for games that it can perform word frequency analysis upon. The related words that link games can even include other games themselves. For example, a game with match three mechanics may be compared to Candy Crush Saga. Combined with existing tags, this system would be more robust and in a way would let users technically direct each other to the games that they want to buy.
+
+Third party publishers appear to be ignored by these suggestions, but they can benefit from this improved system as well. These changes would make them need to identify and focus on their perceived audience better. If a publisher understands its game's audience, the game's reviews will reflect that reality over time and allow them to appear within the right gamers' Discovery Queues. An adjustment that could help smaller publishers is to add weight to a publisher's games if they have low sales, but are commonly found on wishlists. This would increase the visibility of games that gamers believe are good, but have not bought. 
+
+### Conclusions
+
+Steam's recommender system is often maligned because of the potential it has and seems to waste. It has granular data such as concurrent user counts and total play time for each game per player. Leaning into the data Steam already has and collects is the key to improving its recommender system for both gamers and publishers alike.
+
