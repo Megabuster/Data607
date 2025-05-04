@@ -127,3 +127,71 @@ These last results are much closer, but also paint a different picture. Among th
 It is common to be able to use multiple tidyverse packages within a workflow. Using dplyr, forcats, and ggplot, we were able to tidy the original steak data using dplyr, reorganized education values using forcats, and plotted education for medium rare steak choosers using ggplot. 
 
 We hoped to answer if education level impacted a person's steak preference. Initially it appeared that medium rare steaks were more popular with those with college experience or a college degree. However, that was because the sample population was skewed toward college. When we accounted for this skew, it turned out that high school graduates had the highest rate of preferring medium rare, closely followed by those with a graduate degree.
+
+---
+
+### Extension: Gender Differences in Steak Preference
+*By Tyler Graham*
+
+To build on Lawrence Yu’s excellent(and very amusing) analysis, we now explore whether gender also influences steak preparation preference...
+
+```{r}
+# Remove rows with missing or empty gender
+steak_df <- steak_df %>%
+  filter(gender != "" & !is.na(gender))
+
+# Grouping by gender and steak_prepared to count combinations
+steak_df %>%
+  group_by(gender, steak_prepared) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  ggplot(aes(x = steak_prepared, y = count, fill = gender)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Steak Preparation Preference by Gender",
+    x = "Steak Preparation Style",
+    y = "Count",
+    fill = "Gender"
+  ) +
+  theme_minimal()
+```
+
+This bar chart lets us visually compare steak preferences across gender groups.
+
+```{r}
+# Total number of respondents by gender
+gender_counts <- steak_df %>%
+  count(gender)
+
+# Number of medium rare steak choosers by gender
+medium_rare_by_gender <- steak_df %>%
+  filter(steak_prepared == "Medium rare") %>%
+  count(gender) %>%
+  rename(mr_count = n)
+
+# Join and calculate percentage
+gender_percentages <- left_join(gender_counts, medium_rare_by_gender, by = "gender") %>%
+  mutate(
+    mr_count = replace_na(mr_count, 0),
+    percentage = mr_count / n
+  )
+
+# Plot the percentage of each gender that prefers medium rare
+gender_percentages %>%
+  ggplot(aes(x = gender, y = percentage, fill = gender)) +
+  geom_col() +
+  geom_text(aes(label = scales::percent(percentage, accuracy = 1)),
+            vjust = -0.5) +
+  labs(
+    title = "Medium Rare Steak Preference by Gender (Percentage)",
+    x = "Gender",
+    y = "Percent Choosing Medium Rare"
+  ) +
+  scale_y_continuous(labels = scales::percent) +
+  theme_minimal()
+```
+
+As shown, both male and female respondents preferred medium rare at similar rates—around 40% of each group. This suggests that steak preference may not vary significantly by gender, at least within this dataset.
+
+### Conclusion
+
+This extension shows how tidyverse tools can be used to layer in additional demographic factors—like gender—into a tidy data analysis. While overall counts tell part of the story, normalizing by group size is essential to uncover true preferences.
