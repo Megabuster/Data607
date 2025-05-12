@@ -17,7 +17,7 @@ library(forecast)
 library(lmtest)
 ```
 
-### Introduction
+## Introduction
 
 Old School Runescape (OSRS) is a popular multiplayer game with an active (relatively) free market. Its only form of microtransactions is the OSRS bond which players can buy from Jagex, the makers of OSRS, directly. These bonds are digital goods that can be resold to other players. The price that bonds are sold at are based on current market prices allowing them to move in a way similar to real world stocks. Through this process, a player can indirectly buy in-game money and support the game. 
 
