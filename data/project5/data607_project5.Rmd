@@ -1,0 +1,197 @@
+---
+title: "Project 5"
+author: "Lawrence Yu"
+date: "`r Sys.Date()`"
+output: openintro::lab_report
+---
+
+```{r load-packages, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(openintro)
+library(reactable)
+library(jsonlite)
+library(lubridate)
+library(tidyverse)
+library(fpp2)
+library(forecast)
+library(lmtest)
+```
+
+### Introduction
+
+Old School Runescape (OSRS) is a popular multiplayer game with an active (relatively) free market. Its only form of microtransactions is the OSRS bond which players can buy from Jagex, the makers of OSRS, directly. These bonds are digital goods that can be resold to other players. The price that bonds are sold at are based on current market prices allowing them to move in a way similar to real world stocks. Through this process, a player can indirectly buy in-game money and support the game. 
+
+Since real world scenarios can affect the sales and prices of OSRS bonds, I want to see if there is a correlation between the S&P 500 stock market price and the OSRS bond price.
+
+## Data collection and wrangling
+
+Start by getting the saved S&P 500 daily stock data for the past 5 years. Mutate the date column to year-month-day format to allow it to be used as a Date type instead. We will also filter the dataframe to only contain dates between April 29, 2024 and December 20, 2024 because of the limitations of the other data we are using. 
+
+```{r}
+sp500_hist_init <- read_csv('https://raw.githubusercontent.com/Megabuster/Data607/refs/heads/main/data/project5/sp500_historical.csv', show_col_types = FALSE)
+sp500_hist_init <- sp500_hist_init %>%
+  mutate(Date = as_datetime(mdy(Date))) 
+sp500_hist <- sp500_hist_init %>%
+  filter(Date > '2024-04-29' & Date < '2024-12-20')
+head(sp500_hist)
+```
+
+Typically, we can obtain OSRS price data via their API as shown below. Note that we will not be using that copy of the data because the time range will change depending on when the API is called and cannot retrieve more time unless each day is called individually. Collecting those days manually would incur a severe amount of API calls and likely be rate limited. 
+
+```{r eval=FALSE}
+test_bond_api <- read_csv('https://prices.runescape.wiki/api/v1/osrs/timeseries?timestep=24h&id=4151', show_col_types = FALSE)
+```
+
+Instead, we also saved a copy as a JSON which we will use to compare to the S&P 500 price data. The dates are again being converted into a datetime type because it is actually not the right format.
+
+
+```{r}
+bond_prices_init <- fromJSON('https://raw.githubusercontent.com/Megabuster/Data607/refs/heads/main/data/project5/osrs_bond1yr.json')$data
+bond_prices_init <- bond_prices_init %>% mutate(Date = as_datetime(timestamp)) 
+bond_prices <- bond_prices_init %>% filter(Date > '2024-04-29' & Date < '2024-12-20')
+head(bond_prices)
+```
+
+The stock market does not typically update on weekends or specific federal holidays. This makes it harder to compare the data with OSRS bonds. One way to handle this is to keep only the days that exist in both dataframes. Note that the dates are in the same format as in the S&P 500 data, but in the opposite order. We will fix this later.
+
+```{r}
+reduced_bond_prices <- filter(bond_prices, Date %in% sp500_hist$Date)
+head(reduced_bond_prices)
+```
+
+The next operation is to take the average of the high and low prices to get a single price variable for each data set to make it easier to compare. We will need to reverse the S&P 500 prices because the original dates were in opposite orders.
+
+```{r}
+avg_bond_df <- reduced_bond_prices %>% 
+  mutate(Price = (avgHighPrice + avgLowPrice) / 2)
+
+avg_sp500_df <- sp500_hist %>% 
+  mutate(Price = (High + Low) / 2)
+
+prices_df <- data.frame(Date = avg_bond_df$Date, avg_bond_price = avg_bond_df$Price, avg_sp500_price = rev(avg_sp500_df$Price))
+head(prices_df)
+```
+
+## Analysis
+
+Let's start with a cursory look at our cleaned up data for both prices.
+
+```{r}
+prices_df %>%
+  ggplot(aes(Date, avg_sp500_price)) +
+  geom_point() +
+  geom_smooth() +
+  labs(title = 'S&P 500 price over time')
+
+prices_df %>%
+  ggplot(aes(Date, avg_bond_price)) +
+  geom_point() +
+  geom_smooth() +
+  labs(title = 'OSRS bond price over time')
+```
+
+The price of OSRS bonds generally have trended up, but had a dip around September. The S&P 500 has much more regular highs and lows. The S&P 500 price has trended up as well, but has oscillated far more frequently.
+
+Let's plot to see if there is a trend when comparing the stock and bond prices.
+
+```{r}
+prices_df %>% 
+  ggplot(aes(avg_sp500_price, avg_bond_price)) +
+  geom_point() +
+  stat_smooth(method = "lm", se = FALSE)
+```
+
+This looks like a solid linear regression model candidate. We can perform a Pearson correlation test to make sure.
+
+```{r}
+cor.test(prices_df$avg_bond_price, prices_df$avg_sp500_price)
+``` 
+
+Checking the correlation between the prices of OSRS bonds and the S&P 500, there appears to be a strong correlation between the prices with a p-value of well under 0.05 and a correlation coefficient of 0.6209. We can fit a linear model and check the residuals.
+
+```{r}
+model <- lm(avg_bond_price ~ avg_sp500_price, data = prices_df)
+summary(model)
+
+model %>% 
+  ggplot(aes(x = .fitted, y = .resid)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = 'dashed') +
+  xlab('Fitted values') +
+  ylab('Residuals')
+
+model %>%
+  ggplot(aes(x = .resid)) + 
+  geom_histogram(bins = 20)
+
+ggplot(data = model, aes(sample = .resid)) +
+  stat_qq() +
+  stat_qq_line()
+```
+
+The linear model fitted here has a 0.386 r-squared value that implies a moderate positive correlation. The residuals vs fitted values plot seems fairly normal, but there are outlier values that the model is not accounting for in the upper right. The histogram seems fairly normal. There may be a double peak near the middle depending on how binning is performed. Finally, the values remain along a straight line on the QQ-plot for the first standard deviation before tailing off. The linear regression model appears to fit reasonably well. 
+
+"It's not what you look at that matters, it's what you see." - Henry David Thoreau
+
+Proving or disproving this correlation is going to be more difficult than fitting a model because there is a high likelihood that a model fits, yet does not tell us the whole story. The best we can do is to gather as much useful evidence we have and interpret what we see.
+
+We will try to fit ARIMA models for both prices. This in itself does not prove or disprove their correlations on its own, but gives us clues about their patterns which can be compared. One advantage is that it allows us to use the entirety of our initial data instead of comparing matching dates.
+
+```{r}
+bond_prices_ts <- ts((bond_prices_init$avgHighPrice + bond_prices_init$avgLowPrice) / 2, frequency = 1)
+bond_arima <- auto.arima(bond_prices_ts)
+summary(bond_arima)
+checkresiduals(bond_arima)
+
+sp500_prices_ts <- ts((sp500_hist_init$High + sp500_hist_init$Low) / 2, frequency = 1)
+sp500_arima <- auto.arima(sp500_prices_ts)
+summary(sp500_arima)
+checkresiduals(sp500_arima)
+```
+
+The ARIMA model for OSRS bonds was estimated to be ARIMA(1, 1, 3). The ACF residuals show some extreme lags meaning that there are trends that are not represented within this model. 
+
+The ARIMA model for S&P 500 data was estimated to be ARIMA(0, 1, 1) with drift. The ACF residuals show some lags that are not captured but the model, but not to the same extreme as the model for OSRS bonds.
+
+What does this all mean? This tells us nothing about the potential correlation between our two prices. Let's redo the ARIMA model process, but with `prices_df` which we had been testing the linear correlation with.
+
+```{r}
+bond_prices_ts <- ts(prices_df$avg_bond_price, frequency = 1)
+bond_arima <- auto.arima(bond_prices_ts)
+summary(bond_arima)
+checkresiduals(bond_arima)
+
+sp500_prices_ts <- ts(prices_df$avg_sp500_price, frequency = 1)
+sp500_arima <- auto.arima(sp500_prices_ts)
+summary(sp500_arima)
+checkresiduals(sp500_arima)
+```
+
+We get two different models. OSRS bonds with the weekends and holidays removed were fitted to ARIMA(0, 1, 0) which is a random walk. Each value is sequentially connected to the next in a random walk. 
+
+S&P 500 prices were fitted to ARIMA(0, 1, 1) again. Notably, the drift is missing which means this new model, which has better ACF plot lags, is missing the upward trend of stocks over time. 
+
+This tells us that the trends and patterns we have been analyzing may be flawed.
+
+## Conclusions
+
+This final exercise shows the dangers of the earlier linear regression results. Forcibly testing the correlation between the two prices over time with missing data makes it very difficult to get an accurate analysis. The initial plots for both prices were quite different. While both were increasing over the same time period, we could see that they were operating with different trends. It's possible that bonds always dip around late summer/early fall when school starts again in many places. We need to make sure we can account for these trends in our analysis. We simply do not have enough information to accept or reject our assumption outright. 
+
+```{r}
+prices_df %>%
+  ggplot(aes(Date, avg_sp500_price)) +
+  geom_point() +
+  geom_smooth() +
+  labs(title = 'S&P 500 price over time')
+
+prices_df %>%
+  ggplot(aes(Date, avg_bond_price)) +
+  geom_point() +
+  geom_smooth() +
+  labs(title = 'OSRS bond price over time')
+```
+
+Returning to our original question, I cannot confirm a correlation between OSRS bonds and S&P 500 prices. I believe they do both exhibit trends of increasing prices over time. Further work would require me to obtain more time data for OSRS bonds. An interesting test would be to see if we can forecast future prices for OSRS bonds using past S&P 500 price trends (Granger causality test). 
+
+...
+
